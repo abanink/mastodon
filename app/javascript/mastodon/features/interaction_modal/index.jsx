@@ -1,11 +1,16 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { FormattedMessage } from 'react-intl';
+import { FormattedMessage, defineMessages, injectIntl } from 'react-intl';
 import { registrationsOpen } from 'mastodon/initial_state';
 import { connect } from 'react-redux';
 import Icon from 'mastodon/components/icon';
 import classNames from 'classnames';
 import { openModal, closeModal } from 'mastodon/actions/modal';
+import Button from 'mastodon/components/button';
+
+const messages = defineMessages({
+  loginPrompt: { id: 'interaction_modal.login.prompt', defaultMessage: 'Domain of your home server, e.g. mastodon.social' },
+});
 
 const mapStateToProps = (state, { accountId }) => ({
   displayNameHtml: state.getIn(['accounts', accountId, 'display_name_html']),
@@ -18,61 +23,133 @@ const mapDispatchToProps = (dispatch) => ({
   },
 });
 
-class Copypaste extends React.PureComponent {
+class LoginForm extends React.PureComponent {
 
   static propTypes = {
-    value: PropTypes.string,
+    resourceUrl: PropTypes.string,
+    intl: PropTypes.object.isRequired,
   };
 
   state = {
-    copied: false,
+    value: '',
+    expanded: false,
+    selectedOption: -1,
+    options: [
+      'mastodon.social',
+      'mastodon.online',
+      'universeodon.com',
+      'mstdn.social',
+      // TODO
+    ],
   };
 
   setRef = c => {
     this.input = c;
   };
 
-  handleInputClick = () => {
-    this.setState({ copied: false });
-    this.input.focus();
-    this.input.select();
-    this.input.setSelectionRange(0, this.input.value.length);
+  handleChange = ({ target }) => {
+    this.setState({ value: target.value });
   };
 
-  handleButtonClick = () => {
-    const { value } = this.props;
-    navigator.clipboard.writeText(value);
-    this.input.blur();
-    this.setState({ copied: true });
-    this.timeout = setTimeout(() => this.setState({ copied: false }), 700);
+  handleSubmit = () => {
+    const { value } = this.state;
+    const { resourceUrl } = this.props;
+
+    try {
+      const redirectUrl = new URL(`https://${value}/authorize_interaction?uri=${encodeURIComponent(resourceUrl)}`);
+      window.location.href = redirectUrl;
+    } catch (err) {
+      // TODO
+    }
   };
 
-  componentWillUnmount () {
-    if (this.timeout) clearTimeout(this.timeout);
-  }
+  handleFocus = () => {
+    this.setState({ expanded: true });
+  };
+
+  handleBlur = () => {
+    this.setState({ expanded: false });
+  };
+
+  handleKeyDown = (e) => {
+    const { options, selectedOption } = this.state;
+
+    switch(e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+
+      if (options.length > 0) {
+        this.setState({ selectedOption: Math.min(selectedOption + 1, options.length - 1) });
+      }
+
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+
+      if (options.length > 0) {
+        this.setState({ selectedOption: Math.max(selectedOption - 1, -1) });
+      }
+
+      break;
+    case 'Enter':
+      e.preventDefault();
+
+      if (selectedOption === -1) {
+        this.handleSubmit();
+      } else if (options.length > 0) {
+        this.setState({ value: options[selectedOption] }, () => this.handleSubmit());
+      }
+
+      break;
+    }
+  };
+
+  handleOptionClick = e => {
+    const index  = Number(e.currentTarget.getAttribute('data-index'));
+    const option = this.state.options[index];
+
+    e.preventDefault();
+    this.setState({ selectedOption: index, value: option }, () => this.handleSubmit());
+  };
 
   render () {
-    const { value } = this.props;
-    const { copied } = this.state;
+    const { intl } = this.props;
+    const { expanded, options, selectedOption } = this.state;
 
     return (
-      <div className={classNames('copypaste', { copied })}>
-        <input
-          type='text'
-          ref={this.setRef}
-          value={value}
-          readOnly
-          onClick={this.handleInputClick}
-        />
+      <div className={classNames('interaction-modal__login', { active: expanded })}>
+        <div className='interaction-modal__login__input'>
+          <input
+            ref={this.setRef}
+            type='text'
+            value={this.state.value}
+            placeholder={intl.formatMessage(messages.loginPrompt)}
+            aria-label={intl.formatMessage(messages.loginPrompt)}
+            onChange={this.handleChange}
+            onFocus={this.handleFocus}
+            onBlur={this.handleBlur}
+            onKeyDown={this.handleKeyDown}
+          />
 
-        <button className='button' onClick={this.handleButtonClick}>
-          {copied ? <FormattedMessage id='copypaste.copied' defaultMessage='Copied' /> : <FormattedMessage id='copypaste.copy' defaultMessage='Copy' />}
-        </button>
+          <Button onClick={this.handleSubmit}><FormattedMessage id='interaction_modal.login.action' defaultMessage='Take me home' /></Button>
+        </div>
+
+        <div className='search__popout'>
+          <div className='search__popout__menu'>
+            {options.slice(0, 3).map((domain, i) => (
+              <button key={domain} onMouseDown={this.handleOptionClick} data-index={i} className={classNames('search__popout__menu__item', { selected: selectedOption === i })}>
+                {domain}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
 
 }
+
+const IntlLoginForm = injectIntl(LoginForm);
 
 class InteractionModal extends React.PureComponent {
 
@@ -121,13 +198,13 @@ class InteractionModal extends React.PureComponent {
 
     if (registrationsOpen) {
       signupButton = (
-        <a href='/auth/sign_up' className='button button--block button-tertiary'>
+        <a href='/auth/sign_up' className='link-button'>
           <FormattedMessage id='sign_in_banner.create_account' defaultMessage='Create account' />
         </a>
       );
     } else {
       signupButton = (
-        <button className='button button--block button-tertiary' onClick={this.handleSignupClick}>
+        <button className='link-button' onClick={this.handleSignupClick}>
           <FormattedMessage id='sign_in_banner.create_account' defaultMessage='Create account' />
         </button>
       );
@@ -137,22 +214,12 @@ class InteractionModal extends React.PureComponent {
       <div className='modal-root__modal interaction-modal'>
         <div className='interaction-modal__lead'>
           <h3><span className='interaction-modal__icon'>{icon}</span> {title}</h3>
-          <p>{actionDescription} <FormattedMessage id='interaction_modal.preamble' defaultMessage="Since Mastodon is decentralized, you can use your existing account hosted by another Mastodon server or compatible platform if you don't have an account on this one." /></p>
+          <p>{actionDescription} <strong><FormattedMessage id='interaction_modal.sign_in' defaultMessage='You are not signed in. Where is your account hosted?' /></strong></p>
         </div>
 
-        <div className='interaction-modal__choices'>
-          <div className='interaction-modal__choices__choice'>
-            <h3><FormattedMessage id='interaction_modal.on_this_server' defaultMessage='On this server' /></h3>
-            <a href='/auth/sign_in' className='button button--block'><FormattedMessage id='sign_in_banner.sign_in' defaultMessage='Sign in' /></a>
-            {signupButton}
-          </div>
+        <IntlLoginForm resourceUrl={url} />
 
-          <div className='interaction-modal__choices__choice'>
-            <h3><FormattedMessage id='interaction_modal.on_another_server' defaultMessage='On a different server' /></h3>
-            <p><FormattedMessage id='interaction_modal.other_server_instructions' defaultMessage='Copy and paste this URL into the search field of your favourite Mastodon app or the web interface of your Mastodon server.' /></p>
-            <Copypaste value={url} />
-          </div>
-        </div>
+        <p><FormattedMessage id='interaction_modal.no_account_yet' defaultMessage='No account yet?' /> {signupButton}</p>
       </div>
     );
   }

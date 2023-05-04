@@ -24,8 +24,7 @@ export default class ModalRoot extends React.PureComponent {
   activeElement = this.props.children ? document.activeElement : null;
 
   handleKeyUp = (e) => {
-    if ((e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)
-         && !!this.props.children) {
+    if (e.key === 'Escape' && !!this.props.children) {
       this.props.onClose();
     }
   };
